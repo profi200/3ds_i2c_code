@@ -83,7 +83,7 @@ static vu8* i2cGetBusRegsBase(u8 busId)
 	return base;
 }
 
-static bool i2cStartTransfer(I2cDevice devId, u8 regAddr, bool read, vu8 *regsBase)
+static bool i2cStartTransfer(u8 devId, u8 regAddr, bool read, vu8 *regsBase)
 {
 	const u8 devAddr = i2cDevTable[devId].devAddr;
 	vu8 *const i2cData = regsBase;
@@ -173,7 +173,7 @@ bool I2C_readRegBuf(I2cDevice devId, u8 regAddr, u8 *out, u32 size)
 	return true;
 }
 
-bool I2C_writeReg(I2cDevice devId, u8 regAddr, u8 data)
+bool I2C_writeRegBuf(I2cDevice devId, u8 regAddr, const u8 *in, u32 size)
 {
 	const u8 busId = i2cDevTable[devId].busId;
 	vu8 *const i2cData = i2cGetBusRegsBase(busId);
@@ -182,10 +182,21 @@ bool I2C_writeReg(I2cDevice devId, u8 regAddr, u8 data)
 
 	if(!i2cStartTransfer(devId, regAddr, false, i2cData)) return false;
 
-	*i2cData = data;
+	while(--size)
+	{
+		*i2cData = *in++;
+		*i2cCnt = I2C_ENABLE | I2C_IRQ_ENABLE | I2C_DIRE_WRITE;
+		i2cWaitBusy(i2cCnt);
+		if(!I2C_GET_ACK(*i2cCnt)) // If ack flag is 0 it failed.
+		{
+			*i2cCnt = I2C_ENABLE | I2C_IRQ_ENABLE | I2C_ERROR | I2C_STOP;
+			return false;
+		}
+	}
+
+	*i2cData = *in;
 	*i2cCnt = I2C_ENABLE | I2C_IRQ_ENABLE | I2C_DIRE_WRITE | I2C_STOP;
 	i2cWaitBusy(i2cCnt);
-
 	if(!I2C_GET_ACK(*i2cCnt)) // If ack flag is 0 it failed.
 	{
 		*i2cCnt = I2C_ENABLE | I2C_IRQ_ENABLE | I2C_ERROR | I2C_STOP;
@@ -193,4 +204,16 @@ bool I2C_writeReg(I2cDevice devId, u8 regAddr, u8 data)
 	}
 
 	return true;
+}
+
+u8 I2C_readReg(I2cDevice devId, u8 regAddr)
+{
+	u8 data;
+	if(!I2C_readRegBuf(devId, regAddr, &data, 1)) return 0xFF;
+	return data;
+}
+
+bool I2C_writeReg(I2cDevice devId, u8 regAddr, u8 data)
+{
+	return I2C_writeRegBuf(devId, regAddr, &data, 1);
 }
